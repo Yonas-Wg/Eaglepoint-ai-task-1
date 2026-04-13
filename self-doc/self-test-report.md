@@ -54,6 +54,7 @@
 - [X] `unit_tests/`, `API_tests/`, `run_tests.sh` included
 
 ## Screenshots
+- Location: `self-doc/screenshots/`
 - [X] Login page
 - [X] Dashboard after login
 - [X] Registration flow

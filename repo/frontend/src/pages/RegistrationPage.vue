@@ -16,7 +16,17 @@
   <div class="card">
     <h2>Checklist Material Upload</h2>
     <input v-model.number="registrationId" type="number" placeholder="Registration ID" />
-    <input v-model="materialType" placeholder="Material type (e.g. proposal)" />
+    <button :disabled="uploading || !registrationId" @click="loadChecklist">Load Checklist</button>
+    <select v-model="materialType">
+      <option disabled value="">Select checklist item</option>
+      <option
+        v-for="item in checklistItems"
+        :key="item.material_type"
+        :value="item.material_type"
+      >
+        {{ item.material_type }} ({{ item.status_label }})
+      </option>
+    </select>
     <label>
       <input type="checkbox" v-model="isFinalSubmit" />
       Final submit this checklist item
@@ -42,12 +52,13 @@ const message = ref("");
 const error = ref("");
 const step = ref(1);
 const registrationId = ref(1);
-const materialType = ref("proposal");
+const materialType = ref("");
 const isFinalSubmit = ref(false);
 const fileRef = ref(null);
 const uploading = ref(false);
 const uploadMsg = ref("");
 const uploadErr = ref("");
+const checklistItems = ref([]);
 const allowedFileExt = new Set(["pdf", "jpg", "jpeg", "png"]);
 const maxSingleFileSize = 20 * 1024 * 1024;
 const maxTotalFileSize = 200 * 1024 * 1024;
@@ -72,11 +83,25 @@ const submit = async () => {
       id_number: idNumber.value,
       contact: contact.value,
     });
+    registrationId.value = data.id;
+    await loadChecklist();
     message.value = `Created registration #${data.id}`;
   } catch (e) {
     error.value = e?.response?.data?.detail?.msg || "Failed";
   } finally {
     loading.value = false;
+  }
+};
+
+const loadChecklist = async () => {
+  uploadErr.value = "";
+  uploadMsg.value = "";
+  const token = localStorage.getItem("token");
+  if (token) setToken(token);
+  const { data } = await api.get(`/materials/checklist/${registrationId.value}`);
+  checklistItems.value = Array.isArray(data?.items) ? data.items : [];
+  if (!materialType.value && checklistItems.value.length) {
+    materialType.value = checklistItems.value[0].material_type;
   }
 };
 
@@ -105,6 +130,7 @@ const uploadMaterial = async () => {
     const token = localStorage.getItem("token");
     if (token) setToken(token);
     if (!fileRef.value) throw new Error("Please choose a file first");
+    if (!materialType.value) throw new Error("Please select a checklist item first");
     const usage = await api.get(`/materials/usage/${registrationId.value}`);
     const currentTotal = Number(usage?.data?.total_size_bytes || 0);
     if (currentTotal + fileRef.value.size > maxTotalFileSize) {
@@ -119,6 +145,7 @@ const uploadMaterial = async () => {
     uploadMsg.value = isFinalSubmit.value
       ? `Submitted checklist item as version ${data.version_no}`
       : `Saved checklist draft as version ${data.version_no}`;
+    await loadChecklist();
   } catch (e) {
     uploadErr.value = e?.response?.data?.detail?.msg || e.message || "Upload failed";
   } finally {

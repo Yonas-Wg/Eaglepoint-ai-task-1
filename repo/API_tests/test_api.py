@@ -13,9 +13,8 @@ FINANCE_PASSWORD = os.getenv("FINANCE_TEST_PASSWORD") or os.getenv("FINANCE_BOOT
 
 
 def _require_password(password: str | None, env_hint: str) -> str:
-    if password:
-        return password
-    pytest.skip(f"Missing credentials; set {env_hint}")
+    assert password, f"Missing credentials; set {env_hint}"
+    return password
 
 
 def _admin_token() -> str:
@@ -348,6 +347,56 @@ def test_reviewer_review_logs_require_assigned_scope():
     assert allowed.status_code == 200
 
 
+def test_reviewer_correction_requires_assigned_scope():
+    reviewer_password = _require_password(REVIEWER_PASSWORD, "REVIEWER_TEST_PASSWORD or REVIEWER_BOOTSTRAP_PASSWORD")
+    admin_token = _admin_token()
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    reviewer_token = _token_for("reviewer", reviewer_password)
+    reviewer_headers = {"Authorization": f"Bearer {reviewer_token}"}
+
+    create = requests.post(
+        f"{BASE}/registrations",
+        json={"title": "Correction Scope", "id_number": "ID6106", "contact": "0100666888"},
+        headers=admin_headers,
+        timeout=30,
+    )
+    assert create.status_code == 200
+    reg_id = create.json()["id"]
+
+    initial_upload = requests.post(
+        f"{BASE}/materials/upload?registration_id={reg_id}&material_type=proposal",
+        headers=admin_headers,
+        files={"upload": ("proposal.pdf", b"v1", "application/pdf")},
+        timeout=30,
+    )
+    assert initial_upload.status_code == 200
+    material_id = initial_upload.json()["id"]
+
+    denied = requests.post(
+        f"{BASE}/materials/{material_id}/mark-correction",
+        json={"reason": "not assigned"},
+        headers=reviewer_headers,
+        timeout=30,
+    )
+    assert denied.status_code == 403
+
+    assign = requests.post(
+        f"{BASE}/access/assign",
+        json={"registration_id": reg_id, "username": "reviewer", "domain": "review"},
+        headers=admin_headers,
+        timeout=30,
+    )
+    assert assign.status_code == 200
+
+    allowed = requests.post(
+        f"{BASE}/materials/{material_id}/mark-correction",
+        json={"reason": "assigned"},
+        headers=reviewer_headers,
+        timeout=30,
+    )
+    assert allowed.status_code == 200
+
+
 def test_finance_budget_requires_assigned_scope():
     finance_password = _require_password(FINANCE_PASSWORD, "FINANCE_TEST_PASSWORD or FINANCE_BOOTSTRAP_PASSWORD")
     admin_token = _admin_token()
@@ -387,3 +436,67 @@ def test_finance_budget_requires_assigned_scope():
         timeout=30,
     )
     assert allowed.status_code == 200
+
+
+def test_cross_domain_read_access_requires_assignment():
+    reviewer_password = _require_password(REVIEWER_PASSWORD, "REVIEWER_TEST_PASSWORD or REVIEWER_BOOTSTRAP_PASSWORD")
+    finance_password = _require_password(FINANCE_PASSWORD, "FINANCE_TEST_PASSWORD or FINANCE_BOOTSTRAP_PASSWORD")
+    admin_token = _admin_token()
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    reviewer_headers = {"Authorization": f"Bearer {_token_for('reviewer', reviewer_password)}"}
+    finance_headers = {"Authorization": f"Bearer {_token_for('finance', finance_password)}"}
+
+    create = requests.post(
+        f"{BASE}/registrations",
+        json={"title": "Read Scope", "id_number": "ID8008", "contact": "0100888999"},
+        headers=admin_headers,
+        timeout=30,
+    )
+    assert create.status_code == 200
+    reg_id = create.json()["id"]
+
+    # Reviewer cannot read before review assignment.
+    denied_reg = requests.get(f"{BASE}/registrations/{reg_id}", headers=reviewer_headers, timeout=30)
+    denied_checklist = requests.get(f"{BASE}/materials/checklist/{reg_id}", headers=reviewer_headers, timeout=30)
+    denied_usage = requests.get(f"{BASE}/materials/usage/{reg_id}", headers=reviewer_headers, timeout=30)
+    assert denied_reg.status_code == 403
+    assert denied_checklist.status_code == 403
+    assert denied_usage.status_code == 403
+
+    assign_review = requests.post(
+        f"{BASE}/access/assign",
+        json={"registration_id": reg_id, "username": "reviewer", "domain": "review"},
+        headers=admin_headers,
+        timeout=30,
+    )
+    assert assign_review.status_code == 200
+
+    allowed_reg = requests.get(f"{BASE}/registrations/{reg_id}", headers=reviewer_headers, timeout=30)
+    allowed_checklist = requests.get(f"{BASE}/materials/checklist/{reg_id}", headers=reviewer_headers, timeout=30)
+    allowed_usage = requests.get(f"{BASE}/materials/usage/{reg_id}", headers=reviewer_headers, timeout=30)
+    assert allowed_reg.status_code == 200
+    assert allowed_checklist.status_code == 200
+    assert allowed_usage.status_code == 200
+
+    # Finance role requires finance assignment for same read endpoints.
+    denied_finance_reg = requests.get(f"{BASE}/registrations/{reg_id}", headers=finance_headers, timeout=30)
+    denied_finance_checklist = requests.get(f"{BASE}/materials/checklist/{reg_id}", headers=finance_headers, timeout=30)
+    denied_finance_usage = requests.get(f"{BASE}/materials/usage/{reg_id}", headers=finance_headers, timeout=30)
+    assert denied_finance_reg.status_code == 403
+    assert denied_finance_checklist.status_code == 403
+    assert denied_finance_usage.status_code == 403
+
+    assign_finance = requests.post(
+        f"{BASE}/access/assign",
+        json={"registration_id": reg_id, "username": "finance", "domain": "finance"},
+        headers=admin_headers,
+        timeout=30,
+    )
+    assert assign_finance.status_code == 200
+
+    allowed_finance_reg = requests.get(f"{BASE}/registrations/{reg_id}", headers=finance_headers, timeout=30)
+    allowed_finance_checklist = requests.get(f"{BASE}/materials/checklist/{reg_id}", headers=finance_headers, timeout=30)
+    allowed_finance_usage = requests.get(f"{BASE}/materials/usage/{reg_id}", headers=finance_headers, timeout=30)
+    assert allowed_finance_reg.status_code == 200
+    assert allowed_finance_checklist.status_code == 200
+    assert allowed_finance_usage.status_code == 200

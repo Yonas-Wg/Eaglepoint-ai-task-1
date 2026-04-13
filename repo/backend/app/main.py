@@ -231,6 +231,21 @@ def ensure_registration_access(user: User, reg: Registration) -> None:
         raise HTTPException(status_code=403, detail={"code": 403, "msg": "Permission denied"})
 
 
+def ensure_registration_read_access(db: Session, user: User, reg: Registration) -> None:
+    if user.role == "System Administrator":
+        return
+    if user.role == "Applicant":
+        ensure_registration_access(user, reg)
+        return
+    if user.role == "Reviewer":
+        ensure_domain_access(db, user, reg.id, "review")
+        return
+    if user.role == "Financial Administrator":
+        ensure_domain_access(db, user, reg.id, "finance")
+        return
+    raise HTTPException(status_code=403, detail={"code": 403, "msg": "Permission denied"})
+
+
 def ensure_domain_access(db: Session, user: User, registration_id: int, domain: str) -> None:
     if user.role == "System Administrator":
         return
@@ -384,7 +399,7 @@ def get_registration(registration_id: int, db: Session = Depends(get_db), user: 
     reg = db.query(Registration).filter(Registration.id == registration_id).first()
     if not reg:
         raise HTTPException(status_code=404, detail={"code": 404, "msg": "Registration not found"})
-    ensure_registration_access(user, reg)
+    ensure_registration_read_access(db, user, reg)
     id_number = reg.id_number
     contact = reg.contact
     if user.role != "System Administrator" and reg.applicant_id != user.id:
@@ -502,6 +517,8 @@ def mark_material_for_correction(
     material = db.query(MaterialVersion).filter_by(id=material_id, is_deleted=False).first()
     if not material:
         raise HTTPException(status_code=404, detail={"code": 404, "msg": "Material not found"})
+    if _user.role == "Reviewer":
+        ensure_domain_access(db, _user, material.registration_id, "review")
     material.needs_correction = True
     material.correction_reason = data.reason
     material.status_label = "Needs Correction"
@@ -575,7 +592,7 @@ def get_material_checklist(
     reg = db.query(Registration).filter_by(id=registration_id).first()
     if not reg:
         raise HTTPException(status_code=404, detail={"code": 404, "msg": "Registration not found"})
-    ensure_registration_access(user, reg)
+    ensure_registration_read_access(db, user, reg)
     ensure_default_checklist(db, registration_id)
     rows = db.query(MaterialChecklistItem).filter_by(registration_id=registration_id).order_by(MaterialChecklistItem.id.asc()).all()
     items = [{"material_type": row.material_type, "status_label": row.status_label} for row in rows]
@@ -591,7 +608,7 @@ def get_material_usage(
     reg = db.query(Registration).filter_by(id=registration_id).first()
     if not reg:
         raise HTTPException(status_code=404, detail={"code": 404, "msg": "Registration not found"})
-    ensure_registration_access(user, reg)
+    ensure_registration_read_access(db, user, reg)
     total = sum(x.file_size for x in db.query(MaterialVersion).filter_by(registration_id=registration_id, is_deleted=False).all())
     return {"registration_id": registration_id, "total_size_bytes": total, "max_total_size_bytes": 200 * 1024 * 1024}
 
