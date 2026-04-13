@@ -4,5 +4,6 @@ __pycache__/
 *.pyc
 dist/
 .pytest_cache/
+.env
 storage/*
 !storage/.gitkeep

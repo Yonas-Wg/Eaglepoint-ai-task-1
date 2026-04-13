@@ -1,9 +1,9 @@
 # Architecture Design
 
-- Frontend (`fullstack/frontend`): Vue 3 + Vue Router UI for login, registration, dashboard, and finance workflows.
-- Backend (`fullstack/backend`): FastAPI REST APIs with validation, auth, workflow logic, and reporting.
+- Frontend (`repo/frontend`): Vue 3 + Vue Router UI for login, registration wizard, dashboard, and finance/review/system workflows.
+- Backend (`repo/backend`): FastAPI REST APIs with validation, auth, workflow logic, reporting, and backup/recovery.
 - Database (`postgres:14`): PostgreSQL for users, registrations, review records, transactions, and audit logs.
-- Storage (`fullstack/storage`): local disk storage for uploaded materials and hash-based duplicate checks.
+- Storage (`repo/storage`): local disk storage for uploaded materials and hash-based duplicate checks.
 
 ## Key decisions
 
@@ -15,4 +15,4 @@
 - Review state machine with controlled transitions and <=50 batch processing.
 - Overspending guard: require secondary confirmation when expenses exceed 110% budget.
 - Similarity-check endpoint is reserved and disabled by default.
-- Added system-level data collection batch APIs, report export endpoints (CSV/PDF), and local backup/recovery endpoints.
+- Added system-level data collection batch APIs, report export endpoints (CSV/PDF), and local backup/recovery endpoints (storage + DB snapshot file).

@@ -16,27 +16,35 @@
 - `POST /api/materials/upload?registration_id={id}&material_type={type}` (multipart)
 - `POST /api/materials/{material_id}/mark-correction`
 - `POST /api/materials/{material_id}/supplementary-upload` (multipart)
+- `GET /api/materials/checklist/{registration_id}` (returns checklist item statuses including `Pending Submission/Submitted/Needs Correction`)
+- `GET /api/materials/usage/{registration_id}` (returns current total bytes and 200MB limit metadata)
 
 ## Review
+- `GET /api/reviews/queue?status={state}&page={n}&page_size={n}` (review list page source, page_size <= 50)
 - `POST /api/reviews/batch`
   - Request: `{ "items": [{ "registration_id": 1, "to_state": "Approved", "comment": "ok" }] }` (reviewer identity is derived from token)
 - `GET /api/reviews/logs/{registration_id}`
 
 ## Finance
+- `POST /api/funding/{registration_id}/budget`
+  - Request: `{ "budget": 12000.0 }`
+- `GET /api/funding/{registration_id}`
 - `POST /api/transactions`
 - `POST /api/transactions/{transaction_id}/invoice` (multipart)
 - `GET /api/transactions/stats?registration_id={id}&start_iso={iso}&end_iso={iso}`
 
 ## Reports
-- `GET /api/reports/summary`
-- `GET /api/reports/{report_type}/export?format=csv|pdf`
+- `GET /api/reports/summary` (Reviewer / Financial Administrator / System Administrator)
+- `GET /api/reports/{report_type}/export?format=csv|pdf` (Reviewer / Financial Administrator / System Administrator)
 
 ## System
 - `GET /api/similarity-check` (disabled by default)
 - `GET /api/whitelist-policies/export`
 - `POST /api/batches`
+- `POST /api/access/assign` (System Administrator only; assign `review`/`finance` scope to a user for one registration)
 - `POST /api/system/backup`
 - `POST /api/system/recovery`
+  - Backup includes local storage snapshot plus `database_backup.json`
 
 ## Error format
 - Structured error detail: `{"code": <http-code>, "msg": "error message"}`

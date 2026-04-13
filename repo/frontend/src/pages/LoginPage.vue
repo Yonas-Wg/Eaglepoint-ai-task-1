@@ -16,8 +16,8 @@ import { useRouter } from "vue-router";
 import api, { setToken } from "../api";
 
 const router = useRouter();
-const username = ref("admin");
-const password = ref("admin123");
+const username = ref("");
+const password = ref("");
 const loading = ref(false);
 const error = ref("");
 

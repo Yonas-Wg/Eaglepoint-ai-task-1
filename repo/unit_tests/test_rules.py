@@ -1,6 +1,12 @@
+import os
+
 import pytest
 
-from app.main import app, decrypt_config_value, parse_bool
+os.environ.setdefault("SECRET_KEY", "unit-test-secret")
+os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+os.environ.setdefault("ADMIN_BOOTSTRAP_PASSWORD", "unit-test-admin-pass")
+
+from app.main import app, decrypt_config_value, masked_sensitive, parse_bool
 
 
 def test_app_title():
@@ -21,3 +27,8 @@ def test_decrypt_config_plain_value():
 def test_decrypt_config_requires_key():
     with pytest.raises(ValueError):
         decrypt_config_value("ENC:abc", None)
+
+
+def test_masked_sensitive_behavior():
+    assert masked_sensitive("AB123456CD") == "AB***CD"
+    assert masked_sensitive("1234") == "***"

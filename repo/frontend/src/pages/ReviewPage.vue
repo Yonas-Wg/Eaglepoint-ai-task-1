@@ -1,11 +1,42 @@
 <template>
   <div class="card">
-    <h2>Review Workflow</h2>
+    <h2>Review Workflow List</h2>
     <span class="status-badge status-warn">Reviewer actions</span>
-    <input v-model.number="registrationId" type="number" placeholder="Registration ID" />
+    <button :disabled="loading" @click="loadQueue">Load Submission Queue</button>
+    <div class="table-wrap" v-if="queue.length">
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Title</th><th>Status</th><th>Add To Batch</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in queue" :key="item.registration_id">
+            <td>{{ item.registration_id }}</td>
+            <td>{{ item.title }}</td>
+            <td>{{ item.status }}</td>
+            <td><button @click="pickRegistration(item.registration_id)">Add</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <input v-model.number="registrationId" type="number" placeholder="Batch item registration ID" />
     <input v-model="toState" placeholder="To state (Approved/Rejected/Supplemented/...)" />
     <input v-model="comment" placeholder="Review comment" />
-    <button :disabled="loading" @click="batchReview">{{ loading ? "Submitting..." : "Submit Review Batch(1)" }}</button>
+    <button :disabled="loading" @click="addBatchItem">Add Batch Item</button>
+    <div class="table-wrap" v-if="batchItems.length">
+      <table>
+        <thead>
+          <tr><th>Registration</th><th>To State</th><th>Comment</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="(item, idx) in batchItems" :key="idx">
+            <td>{{ item.registration_id }}</td>
+            <td>{{ item.to_state }}</td>
+            <td>{{ item.comment }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <button :disabled="loading || !batchItems.length" @click="batchReview">{{ loading ? "Submitting..." : "Submit Review Batch" }}</button>
     <button :disabled="loading" @click="loadLogs">Load Review Logs</button>
     <div class="table-wrap" v-if="logs.length">
       <table>
@@ -45,6 +76,8 @@ const registrationId = ref(1);
 const toState = ref("Approved");
 const comment = ref("Looks good");
 const logs = ref([]);
+const queue = ref([]);
+const batchItems = ref([]);
 const materialId = ref(1);
 const reason = ref("Please correct this material");
 const uploadFile = ref(null);
@@ -57,16 +90,42 @@ const ensureToken = () => {
   if (token) setToken(token);
 };
 
+const loadQueue = async () => {
+  loading.value = true;
+  error.value = "";
+  try {
+    ensureToken();
+    const { data } = await api.get("/reviews/queue?page=1&page_size=20");
+    queue.value = data.items || [];
+  } catch (e) {
+    error.value = e?.response?.data?.detail?.msg || "Failed";
+  } finally {
+    loading.value = false;
+  }
+};
+
+const pickRegistration = (id) => {
+  registrationId.value = id;
+};
+
+const addBatchItem = () => {
+  if (!registrationId.value) return;
+  batchItems.value.push({
+    registration_id: registrationId.value,
+    to_state: toState.value,
+    comment: comment.value,
+  });
+};
+
 const batchReview = async () => {
   loading.value = true;
   message.value = "";
   error.value = "";
   try {
     ensureToken();
-    await api.post("/reviews/batch", {
-      items: [{ registration_id: registrationId.value, to_state: toState.value, comment: comment.value }],
-    });
-    message.value = "Batch review submitted";
+    await api.post("/reviews/batch", { items: batchItems.value.slice(0, 50) });
+    message.value = `Batch review submitted (${Math.min(batchItems.value.length, 50)} items)`;
+    batchItems.value = [];
   } catch (e) {
     error.value = e?.response?.data?.detail?.msg || "Review failed";
   } finally {

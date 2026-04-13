@@ -2,6 +2,10 @@
   <div class="card">
     <h2>Finance</h2>
     <input v-model.number="registrationId" placeholder="Registration ID" type="number" />
+    <input v-model.number="budget" placeholder="Budget" type="number" />
+    <button :disabled="loading" @click="setBudget">
+      {{ loading ? "Saving..." : "Set / Update Budget" }}
+    </button>
     <select v-model="txType">
       <option value="expense">expense</option>
       <option value="income">income</option>
@@ -43,6 +47,7 @@ const registrationId = ref(1);
 const txType = ref("expense");
 const category = ref("Operations");
 const amount = ref(0);
+const budget = ref(1000);
 const loading = ref(false);
 const error = ref("");
 const message = ref("");
@@ -65,6 +70,23 @@ const createTransaction = async (secondaryConfirmation) => {
   });
   transactionId.value = data.id;
   return data;
+};
+
+const setBudget = async () => {
+  loading.value = true;
+  error.value = "";
+  message.value = "";
+  try {
+    ensureToken();
+    await api.post(`/funding/${registrationId.value}/budget`, {
+      budget: budget.value,
+    });
+    message.value = `Budget set to ${budget.value}`;
+  } catch (e) {
+    error.value = e?.response?.data?.detail?.msg || "Failed";
+  } finally {
+    loading.value = false;
+  }
 };
 
 const save = async () => {
