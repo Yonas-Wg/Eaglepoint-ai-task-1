@@ -1,12 +1,15 @@
-# Screenshots
+<img width="1910" height="1010" alt="Screenshot 2026-04-13 161057" src="https://github.com/user-attachments/assets/6fd6a1ef-a4c3-4081-8622-c9a828a83656" /># Screenshots
 
 Put all app verification screenshots in this folder.
 
-Recommended names:
-- `01-login.png`
-- `02-dashboard.png`
-- `03-registration.png`
-- `04-review-batch.png`
-- `05-finance-overspend-warning.png`
-- `06-system-backup-recovery.png`
-- `07-docker-containers-running.png`
+Recommended :
+Api Doc - <img width="1910" height="1010" alt="Screenshot 2026-04-13 161057" src="https://github.com/user-attachments/assets/22111b35-4cd8-40bd-8f43-a18cb5b8af3b" />
+
+Tests - <img width="1021" height="308" alt="Screenshot 2026-04-13 152845" src="https://github.com/user-attachments/assets/b50de79e-2083-486b-9fe2-dba2932f5554" />
+
+Site - <img width="1917" height="1020" alt="Screenshot 2026-04-13 161116" src="https://github.com/user-attachments/assets/4a59e837-aa25-4fd8-bf99-2de4f1f90aa8" />
+
+Docker - <img width="1022" height="741" alt="docker" src="https://github.com/user-attachments/assets/fff8d38e-e467-450a-b99c-243f3886c79f" />
+
+
+
