@@ -1,0 +1,13 @@
+{
+    "prompt": "An Activity Registration and Funding Audit Management Platform with features including multi-role access (Applicant, Reviewer, Financial Administrator, System Administrator), activity registration via a Vue.js form wizard, material uploads with real-time validation (PDF/JPG/PNG, single file <=20MB, total <=200MB), version control (up to 3 versions per material), deadline-based locking, and a one-time supplementary submission process within 72 hours. Reviewers manage applications using a state machine workflow (Submitted, Supplemented, Approved, Rejected, Canceled, Waitlist Promotion) with batch processing (<=50 items), review comments, and traceable logs. Financial administrators manage income/expenses, upload invoices, and generate reports with alerts when expenses exceed the budget by 10%. The system uses FastAPI for RESTful APIs with PostgreSQL for local data storage, supporting full offline deployment. Backend includes rule-based validation, quality metrics (approval rate, correction rate, overspending rate), SHA-256-based duplicate detection, and local alerts. Files are stored locally without external services. A similarity/duplicate check interface is reserved but disabled by default. Security includes username/password authentication, hashed credentials, role-based data masking, access control (account locked for 30 minutes after >=10 failed attempts within 5 minutes), auditing, encrypted configurations, daily backups, and one-click recovery. The system supports exporting reconciliation, audit, compliance reports, and whitelist policies for data collection scope.",
+    
+    "project_type": "full_stack",
+    
+    "frontend_language": "JavaScript",
+    "backend_language": "Python",
+    
+    "frontend_framework": "Vue.js",
+    "backend_framework": "FastAPI",
+    
+    "database": "PostgreSQL"
+  }
