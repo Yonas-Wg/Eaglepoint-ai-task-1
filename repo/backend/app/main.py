@@ -585,10 +585,13 @@ def export_report(report_type: str, format: str = "csv", db: Session = Depends(g
         pdf.cell(0, 8, f"Generated: {datetime.now(timezone.utc).isoformat()}", ln=True)
         pdf.cell(0, 8, f"Rows: {len(logs)}", ln=True)
         pdf.ln(4)
+        effective_width = pdf.w - pdf.l_margin - pdf.r_margin
         for idx, row in enumerate(logs, start=1):
             detail = (row.detail or "").replace("\n", " ").strip()
             line = f"{idx}. {row.action} - {detail}" if detail else f"{idx}. {row.action}"
-            pdf.multi_cell(0, 7, line)
+            # Keep cursor at left margin to avoid zero-width rendering failures.
+            pdf.set_x(pdf.l_margin)
+            pdf.multi_cell(effective_width, 7, line)
         pdf_payload = pdf.output(dest="S")
         if isinstance(pdf_payload, bytearray):
             pdf_bytes = bytes(pdf_payload)
