@@ -64,7 +64,6 @@ const batchReview = async () => {
   try {
     ensureToken();
     await api.post("/reviews/batch", {
-      reviewer_id: 1,
       items: [{ registration_id: registrationId.value, to_state: toState.value, comment: comment.value }],
     });
     message.value = "Batch review submitted";

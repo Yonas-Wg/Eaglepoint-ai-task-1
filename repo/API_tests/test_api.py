@@ -50,7 +50,7 @@ def test_protected_endpoint_requires_token():
 def test_create_registration_requires_token():
     response = requests.post(
         f"{BASE}/registrations",
-        json={"applicant_id": 1, "title": "No Token", "id_number": "ID0001", "contact": "0100000000"},
+        json={"title": "No Token", "id_number": "ID0001", "contact": "0100000000"},
         timeout=30,
     )
     assert response.status_code == 401
@@ -61,7 +61,7 @@ def test_create_registration_and_read_reports_with_auth():
     headers = {"Authorization": f"Bearer {token}"}
     create = requests.post(
         f"{BASE}/registrations",
-        json={"applicant_id": 1, "title": "QA Registration", "id_number": "ID1001", "contact": "0100111222"},
+        json={"title": "QA Registration", "id_number": "ID1001", "contact": "0100111222"},
         headers=headers,
         timeout=30,
     )
@@ -80,7 +80,7 @@ def test_review_batch_limit_boundary():
     too_many = [{"registration_id": 1, "to_state": "Approved", "comment": "bulk"} for _ in range(51)]
     response = requests.post(
         f"{BASE}/reviews/batch",
-        json={"reviewer_id": 1, "items": too_many},
+        json={"items": too_many},
         headers=headers,
         timeout=30,
     )
@@ -92,7 +92,7 @@ def test_set_deadline_invalid_datetime_format():
     headers = {"Authorization": f"Bearer {token}"}
     create = requests.post(
         f"{BASE}/registrations",
-        json={"applicant_id": 1, "title": "Deadline Validation", "id_number": "ID2002", "contact": "0100222333"},
+        json={"title": "Deadline Validation", "id_number": "ID2002", "contact": "0100222333"},
         headers=headers,
         timeout=30,
     )

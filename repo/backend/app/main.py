@@ -49,6 +49,7 @@ ALGORITHM = "HS256"
 MAX_ATTEMPTS = 10
 LOCK_MINUTES = 30
 WINDOW_MINUTES = 5
+APP_ENV = os.getenv("APP_ENV", "dev").strip().lower()
 SIMILARITY_CHECK_ENABLED = parse_bool(os.getenv("SIMILARITY_CHECK_ENABLED"), default=False)
 STORAGE_ROOT = Path(os.getenv("STORAGE_ROOT", "/app/storage"))
 AUTO_BACKUP_ENABLED = parse_bool(os.getenv("AUTO_BACKUP_ENABLED"), default=True)
@@ -159,6 +160,8 @@ class Transaction(Base):
     tx_type: Mapped[str] = mapped_column(String(16), nullable=False)
     category: Mapped[str] = mapped_column(String(64), nullable=False)
     amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    invoice_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
 class AuditLog(Base):
@@ -193,7 +196,6 @@ class LoginIn(BaseModel):
 
 
 class RegistrationIn(BaseModel):
-    applicant_id: int
     title: str
     id_number: str
     contact: str
@@ -206,7 +208,6 @@ class ReviewItem(BaseModel):
 
 
 class BatchReviewIn(BaseModel):
-    reviewer_id: int
     items: list[ReviewItem]
 
 
@@ -230,6 +231,12 @@ class BatchIn(BaseModel):
     registration_id: int
     batch_name: str
     whitelist_scope: str
+
+
+class TransactionStatsOut(BaseModel):
+    category: str
+    total_amount: float
+    count: int
 
 
 app = FastAPI(title="Activity Registration and Funding Audit Platform")
@@ -280,8 +287,15 @@ def require_roles(*roles: str):
     return checker
 
 
+def ensure_registration_access(user: User, reg: Registration) -> None:
+    if user.role == "Applicant" and reg.applicant_id != user.id:
+        raise HTTPException(status_code=403, detail={"code": 403, "msg": "Permission denied"})
+
+
 @app.on_event("startup")
 def startup() -> None:
+    if APP_ENV != "dev" and SECRET_KEY == "super_secret_change_me":
+        raise RuntimeError("SECRET_KEY must be configured outside dev environment")
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
@@ -291,9 +305,14 @@ def startup() -> None:
         db.execute(text("ALTER TABLE registrations ADD COLUMN IF NOT EXISTS supplementary_used BOOLEAN DEFAULT FALSE"))
         db.execute(text("ALTER TABLE material_versions ADD COLUMN IF NOT EXISTS needs_correction BOOLEAN DEFAULT FALSE"))
         db.execute(text("ALTER TABLE material_versions ADD COLUMN IF NOT EXISTS correction_reason TEXT"))
+        db.execute(text("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()"))
+        db.execute(text("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS invoice_path VARCHAR(500)"))
         db.commit()
         if not db.query(User).filter(User.username == "admin").first():
-            db.add(User(username="admin", password_hash=pwd_context.hash("admin123"), role="System Administrator"))
+            admin_password = os.getenv("ADMIN_BOOTSTRAP_PASSWORD", "admin123")
+            if APP_ENV != "dev" and admin_password == "admin123":
+                raise RuntimeError("ADMIN_BOOTSTRAP_PASSWORD must be configured outside dev environment")
+            db.add(User(username="admin", password_hash=pwd_context.hash(admin_password), role="System Administrator"))
             db.commit()
     finally:
         db.close()
@@ -330,8 +349,15 @@ def login(data: LoginIn, db: Session = Depends(get_db)) -> dict:
 
 
 @app.post("/api/registrations")
-def create_registration(data: RegistrationIn, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
-    reg = Registration(**data.model_dump(), status="Submitted", supplementary_used=False)
+def create_registration(data: RegistrationIn, db: Session = Depends(get_db), user: User = Depends(require_roles("Applicant", "System Administrator"))) -> dict:
+    reg = Registration(
+        applicant_id=user.id,
+        title=data.title,
+        id_number=data.id_number,
+        contact=data.contact,
+        status="Submitted",
+        supplementary_used=False,
+    )
     db.add(reg)
     db.commit()
     db.refresh(reg)
@@ -345,6 +371,7 @@ def get_registration(registration_id: int, db: Session = Depends(get_db), user: 
     reg = db.query(Registration).filter(Registration.id == registration_id).first()
     if not reg:
         raise HTTPException(status_code=404, detail={"code": 404, "msg": "Registration not found"})
+    ensure_registration_access(user, reg)
     id_number = reg.id_number
     contact = reg.contact
     if user.role == "Reviewer":
@@ -359,11 +386,12 @@ def upload_material(
     material_type: str,
     upload: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _user: User = Depends(current_user),
+    user: User = Depends(require_roles("Applicant", "System Administrator")),
 ) -> dict:
     reg = db.query(Registration).filter_by(id=registration_id).first()
     if not reg:
         raise HTTPException(status_code=404, detail={"code": 404, "msg": "Registration not found"})
+    ensure_registration_access(user, reg)
     if reg.deadline and datetime.now(timezone.utc) > reg.deadline:
         raise HTTPException(status_code=423, detail={"code": 423, "msg": "Materials are locked after deadline"})
     ext = (upload.filename or "").rsplit(".", 1)[-1].lower()
@@ -443,11 +471,12 @@ def mark_material_for_correction(
 def start_supplementary(
     registration_id: int,
     db: Session = Depends(get_db),
-    _user: User = Depends(current_user),
+    user: User = Depends(require_roles("Applicant", "System Administrator")),
 ) -> dict:
     reg = db.query(Registration).filter_by(id=registration_id).first()
     if not reg:
         raise HTTPException(status_code=404, detail={"code": 404, "msg": "Registration not found"})
+    ensure_registration_access(user, reg)
     if reg.supplementary_used:
         raise HTTPException(status_code=400, detail={"code": 400, "msg": "Supplementary submission already used"})
     reg.supplementary_used = True
@@ -462,26 +491,28 @@ def supplementary_upload(
     material_id: int,
     upload: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _user: User = Depends(current_user),
+    user: User = Depends(require_roles("Applicant", "System Administrator")),
 ) -> dict:
     old = db.query(MaterialVersion).filter_by(id=material_id, is_deleted=False).first()
     if not old:
         raise HTTPException(status_code=404, detail={"code": 404, "msg": "Material not found"})
     reg = db.query(Registration).filter_by(id=old.registration_id).first()
+    if reg:
+        ensure_registration_access(user, reg)
     now = datetime.now(timezone.utc)
     if not reg or not reg.supplementary_deadline or now > reg.supplementary_deadline:
         raise HTTPException(status_code=400, detail={"code": 400, "msg": "Supplementary window closed"})
     if not old.needs_correction:
         raise HTTPException(status_code=400, detail={"code": 400, "msg": "Only materials marked for correction can be replaced"})
 
-    return upload_material(registration_id=old.registration_id, material_type=old.material_type, upload=upload, db=db, _user=_user)
+    return upload_material(registration_id=old.registration_id, material_type=old.material_type, upload=upload, db=db, user=user)
 
 
 @app.post("/api/reviews/batch")
 def review_batch(
     data: BatchReviewIn,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_roles("Reviewer", "System Administrator")),
+    user: User = Depends(require_roles("Reviewer", "System Administrator")),
 ) -> dict:
     if len(data.items) > 50:
         raise HTTPException(status_code=400, detail={"code": 400, "msg": "Batch limit is 50"})
@@ -501,14 +532,18 @@ def review_batch(
             continue
         old = reg.status
         reg.status = item.to_state
-        db.add(ReviewRecord(registration_id=reg.id, reviewer_id=data.reviewer_id, from_state=old, to_state=reg.status, comment=item.comment))
+        db.add(ReviewRecord(registration_id=reg.id, reviewer_id=user.id, from_state=old, to_state=reg.status, comment=item.comment))
         results.append({"registration_id": reg.id, "ok": True})
     db.commit()
     return {"results": results}
 
 
 @app.get("/api/reviews/logs/{registration_id}")
-def get_review_logs(registration_id: int, db: Session = Depends(get_db), _user: User = Depends(current_user)) -> dict:
+def get_review_logs(registration_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)) -> dict:
+    reg = db.query(Registration).filter_by(id=registration_id).first()
+    if not reg:
+        raise HTTPException(status_code=404, detail={"code": 404, "msg": "Registration not found"})
+    ensure_registration_access(user, reg)
     rows = db.query(ReviewRecord).filter_by(registration_id=registration_id).all()
     return {"logs": [{"from": r.from_state, "to": r.to_state, "comment": r.comment} for r in rows]}
 
@@ -519,6 +554,9 @@ def create_transaction(
     db: Session = Depends(get_db),
     _user: User = Depends(require_roles("Financial Administrator", "System Administrator")),
 ) -> dict:
+    reg = db.query(Registration).filter_by(id=data.registration_id).first()
+    if not reg:
+        raise HTTPException(status_code=404, detail={"code": 404, "msg": "Registration not found"})
     account = db.query(FundingAccount).filter_by(registration_id=data.registration_id).first()
     if not account:
         account = FundingAccount(registration_id=data.registration_id, budget=0)
@@ -534,6 +572,65 @@ def create_transaction(
     db.commit()
     db.refresh(tx)
     return {"id": tx.id}
+
+
+@app.post("/api/transactions/{transaction_id}/invoice")
+def upload_invoice(
+    transaction_id: int,
+    upload: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_roles("Financial Administrator", "System Administrator")),
+) -> dict:
+    tx = db.query(Transaction).filter_by(id=transaction_id).first()
+    if not tx:
+        raise HTTPException(status_code=404, detail={"code": 404, "msg": "Transaction not found"})
+    ext = (upload.filename or "").rsplit(".", 1)[-1].lower()
+    if ext not in {"pdf", "jpg", "jpeg", "png"}:
+        raise HTTPException(status_code=400, detail={"code": 400, "msg": "Invalid file type"})
+    content = upload.file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail={"code": 400, "msg": "Single file exceeds 20MB"})
+    digest = sha256(content).hexdigest()
+    folder = STORAGE_ROOT / str(tx.registration_id) / "invoices"
+    folder.mkdir(parents=True, exist_ok=True)
+    file_path = folder / f"{tx.id}_{digest}_{upload.filename}"
+    file_path.write_bytes(content)
+    tx.invoice_path = str(file_path)
+    db.commit()
+    return {"transaction_id": tx.id, "invoice_path": tx.invoice_path}
+
+
+@app.get("/api/transactions/stats")
+def transaction_stats(
+    registration_id: int,
+    start_iso: str | None = None,
+    end_iso: str | None = None,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_roles("Financial Administrator", "System Administrator")),
+) -> dict:
+    reg = db.query(Registration).filter_by(id=registration_id).first()
+    if not reg:
+        raise HTTPException(status_code=404, detail={"code": 404, "msg": "Registration not found"})
+    q = db.query(
+        Transaction.category.label("category"),
+        func.coalesce(func.sum(Transaction.amount), 0).label("total_amount"),
+        func.count(Transaction.id).label("count"),
+    ).filter(Transaction.registration_id == registration_id)
+    if start_iso:
+        try:
+            start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail={"code": 400, "msg": "Invalid start_iso"})
+        q = q.filter(Transaction.created_at >= start_dt)
+    if end_iso:
+        try:
+            end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail={"code": 400, "msg": "Invalid end_iso"})
+        q = q.filter(Transaction.created_at <= end_dt)
+    rows = q.group_by(Transaction.category).all()
+    stats = [{"category": row.category, "total_amount": float(row.total_amount), "count": int(row.count)} for row in rows]
+    return {"registration_id": registration_id, "stats": stats}
 
 
 @app.get("/api/reports/summary")

@@ -48,7 +48,6 @@ const submit = async () => {
     const token = localStorage.getItem("token");
     if (token) setToken(token);
     const { data } = await api.post("/registrations", {
-      applicant_id: 1,
       title: title.value,
       id_number: idNumber.value,
       contact: contact.value,
